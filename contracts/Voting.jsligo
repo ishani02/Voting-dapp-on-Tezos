@@ -1,0 +1,94 @@
+// #include "Ticket.jsligo"
+
+type ans = map<int,string>;
+type proposalLayout = {
+    idx: nat, // index of each question
+    creator: address, // creator of the question
+    question : string, // question for which users will vote
+    answers: ans, // index of each ans => ans
+    creationTime: timestamp,
+    price: tez
+};
+
+type votingLayout = {
+    selectedAnsIdx: nat, // index of proposal the voter wants to vote 
+};
+
+type buyTicketsLayout = {
+   ticketsRequested: nat,
+};
+
+type storage = {
+    owner: address, // owner of the contract
+    ledger: big_map<address, proposalLayout>, // owner of ques =>  ques
+    voterLedger: big_map<address, nat>, // voter address => ques for which voted address
+    voteCount: map<nat, nat>, // idx of ans => count of votes
+    quesIdx: nat // global counter to maintain index of all questions created
+};
+
+
+type return_ = [list<operation>, storage];
+
+type action = 
+| ["Proposal", proposalLayout]
+| ["Vote", votingLayout];
+
+
+const createProposal = (p : proposalLayout, s: storage): return_ => {
+  let newProposal: proposalLayout = {
+    idx: 0 as nat,
+    creator: Tezos.get_sender(),
+    question: p.question,
+    answers: p.answers, //Map.add(Map.iter(p.answers), answers),
+    creationTime: Tezos.get_now(),
+    price: p.price
+  };
+  let new_storage = {...s, ledger: Big_map.update(Tezos.get_sender(), Some(newProposal), s.ledger), quesIdx: newProposal.idx}; //,, record: newRecords quesIdx: s.quesIdx + (1 as nat), allQuestions: Big_map.add(newProposal.idx, true, s.allQuestions)
+  return [list([]) as list<operation>, new_storage];
+};
+
+const voteProposal = (p: votingLayout, s: storage): return_ => {
+  let ques = Big_map.find_opt(s.quesIdx, s.ledger);
+
+    if(Tezos.amount() >= ques.price && (Tezos.get_sender()).balance > Tezos.amount()) {
+      Approve(Tezos.get_self_address(), p.amount);
+      Transfer(Tezos.get_sender(), s.owner, p.amount);
+    } else {
+      return failwith("You are not eligible to vote. Please buy tokens");
+    }
+
+    let count = match(Big_map.find_opt(p.selectedAnsId, s.voteCount), {
+      None: () => 0 as nat,
+      Some: numVotes => numVotes
+    });
+
+    let ans = match(Big_map.find_opt(p.selectedAnsId,s.voteLedger),{
+      None: () => false,
+      Some: ansPresent => ansPresent
+    });
+    
+    if(ans != false) {
+    let new_storage: storage = {...s, votesCount: Big_map.update(p.selectedAnsIdx, count + 1, s.votesCount)};
+    return [list([]) as list<operation>, new_storage];
+    } else {
+    let new_storage: storage = {...s, voteLedger: Big_map.add(Tezos.get_sender(), p.selectedAnsId, s.voteLedger)};
+    return [list([]) as list<operation>, new_storage];
+    }
+};
+
+const buyTickets = (p: buyTicketsLayout, s: storage) => {
+   if((Tezos.get_sender()).balance > ticketsRequested) { // User has sufficient tezos to buy tickets
+   Ticket.mint(ticketsRequested);
+   } else {
+    return failwith("You don't have sufficient funds");
+   }
+}
+
+const main = (a: action, s: storage): return_ => {
+  let ans = match(a, {
+   Proposal: (p: proposalLayout) => createProposal(p, s),
+   Vote: (p: votingLayout) => voteProposal(p, s),
+  })
+  return ans;
+}
+
