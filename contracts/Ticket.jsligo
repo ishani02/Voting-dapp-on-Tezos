@@ -1,0 +1,189 @@
+
+type account = {
+  balance: nat, // balance will be a natural number to avoid negative values
+  allowances: map<address, nat> // address of actual owner of tokens => amount of tokens allowed
+};
+
+type storage = {
+  owner: address, // owner of contract
+  totalSupply: nat, // total supply of tokens
+  ledger: big_map<address, account> ,// details of each account
+  callbackContract: contract<nat>
+};
+
+type transferLayout = {
+  accountFrom: address,
+  accountTo: address,
+  amount: nat
+};
+
+type approveLayout = {
+  spender: address,
+  amount: nat
+};
+
+type getAllowanceLayout = {
+  owner: address,
+  spender: address
+};
+
+type mintLayout = {
+  amount: nat
+};
+
+type return_ = [list<operation>, storage];
+
+type action = 
+| ["Transfer", transferLayout]
+| ["Approve", approveLayout]
+| ["GetAllowance", getAllowanceLayout]
+| ["GetBalance", address]
+| ["GetTotalSupply", storage] 
+| ["Mint", mintLayout];
+// | ["Burn", [address, nat]];
+
+const isAllowed = (accountFrom: address, value: nat, s: storage) : bool => { // to check if allowance is enough
+    if(Tezos.get_sender() != accountFrom) {
+       let ans = match(Big_map.find_opt(accountFrom, s.ledger), {
+        None:() => false,
+        Some: acc => {
+          match(Map.find_opt(Tezos.get_sender(), acc.allowances), {
+            None: () => false,
+            Some: allowanceAccount => allowanceAccount >= value
+          })
+        }
+       })
+     return ans;
+    } else {
+    return true;
+    }
+};
+
+const transfer = (p: transferLayout, s: storage) : return_ => {
+  if(p.accountFrom == p.accountTo) {
+    return failwith("Sender and receiver address cannot be same");
+  } else {
+    if(!isAllowed(p.accountFrom, p.amount, s)) {
+      return failwith("Not enough allowance");
+    } else { // enough allowance so transfer can happen
+      let actualSender: account = match(Big_map.find_opt(p.accountFrom, s.ledger), {
+        Some: actualSender => actualSender,
+        None: () => failwith("No such account found")
+      });
+      if(actualSender.balance < p.amount) {
+       return failwith("Not enough balance");
+      } else {
+       let actualSender_: account = {...actualSender, balance: abs(actualSender.balance - p.amount)}; // updated sender's balance
+       
+       let receiverAccount: account = match(Big_map.find_opt(p.accountTo, s.ledger), {
+        None: () => { // add account to ledger and set balance as the amount received
+          let accountTo_: account = {balance: 0 as nat, allowances: Map.empty};
+          return accountTo_
+        },
+        Some: receiverAccount => receiverAccount
+       });
+       let destination_: account = {...receiverAccount, balance: receiverAccount.balance + p.amount}; // updated receiver's balance
+
+       let _newAllowance = match(Map.find_opt(Tezos.get_sender(), actualSender_.allowances), {
+           None: () => actualSender_.allowances,
+           Some: new_allowance => 
+            Map.update(Tezos.get_sender(), Some(abs(new_allowance - p.amount)), actualSender_.allowances)
+       })
+
+       let new_storage: storage = {...s, ledger: Big_map.update(p.accountFrom, Some({...actualSender, allowances: actualSender_.allowances}), s.ledger)};
+       let final_storage = {...new_storage, ledger: Big_map.update(p.accountTo, Some(destination_), new_storage.ledger)}
+       return [list([]) as list<operation>, final_storage];
+      }
+    };
+  }
+};
+
+
+const approve = (p: approveLayout, s: storage) : return_ => {
+ if(Tezos.get_sender() == p.spender) {
+  return failwith("You cannot approve yourself");
+ } else {
+  let src: account = match(Big_map.find_opt(Tezos.get_sender(), s.ledger), {
+     None: () => failwith("Account doesn't exist"),
+     Some: src => src
+  });
+ 
+  // checks if allowance has not previously been set to avoid attack vector
+  let newAllowance = match(Map.find_opt(p.spender, src.allowances), {
+    None: () => {
+     Map.update(p.spender, Some(p.amount), src.allowances)
+    },
+    Some: new_allowance => {
+     if(new_allowance > (0 as nat) && p.amount > (0 as nat)) {
+     // changing allowance when it is not zero is dangerous
+      return failwith("Unsafe to change allowance");
+     } else {
+      return Map.update(p.spender, Some(p.amount), src.allowances)
+     }
+     }
+    });
+   }
+   let new_storage:storage = {...s, ledger: Big_map.update(Tezos.get_sender(), Some({...src, allowances: newAllowance}), s.ledger)};
+   return [list([]) as list<operation>, new_storage];  
+};
+
+const getAllowance = (p:getAllowanceLayout, s: storage): return_ => {
+   let ownerAccount: account = match(Big_map.find_opt(p.owner, s.ledger), {
+    None: () => failwith("No such owner found"),
+    Some: ownerAccount => ownerAccount
+   });
+   let spenderAllowance = match(Map.find_opt(p.spender, ownerAccount.allowances), {
+    None: () => failwith("No account found"),
+    Some: spenderAllowance => spenderAllowance
+   });
+  const op = Tezos.transaction(spenderAllowance, 0 as mutez, s.callbackContract);
+  return [list([op]) as list<operation>, s];
+};
+
+const getBalance = (user: address, s: storage) : return_ => {
+  let user_ = match(Big_map.find_opt(user, s.ledger), {
+    None: () => failwith("No account found"),
+    Some: user_ => user_
+  })
+  const op = Tezos.transaction(user_.balance, 0 as mutez, s.callbackContract);
+  return [list([op]) as list<operation>, s];
+};
+
+const getTotalSupply = (s: storage): return_ => {
+  const op = Tezos.transaction(s.totalSupply, 0 as mutez, s.callbackContract);
+  return [list([op]) as list<operation>, s]; 
+}
+
+const mint = (p:mintLayout, s: storage): return_ => {
+   if(Tezos.get_sender()!= s.owner) {
+    return failwith("Only owner can mint tokens");
+   } else {
+    let ownerAccount = match(Big_map.find_opt(s.owner, s.ledger), {
+      Some: ownerAcc => {
+        let updatedAccount = {...ownerAcc, balance : ownerAcc.balance + p.amount}
+        return updatedAccount
+      },
+      None: () => {
+       let new_ownerAccount: account = {balance: p.amount, allowances: Map.empty}
+       return new_ownerAccount
+      }
+    });
+    
+    let new_storage: storage = {...s, ledger: Big_map.update(s.owner, Some(ownerAccount), s.ledger),
+     totalSupply : s.totalSupply + p.amount};
+     return [list([]) as list<operation>, new_storage];
+   }
+};
+
+const main = (a: action, s: storage): return_ => {
+  let ans = match(a, {
+    Transfer: (input: transferLayout) => transfer(input, s),
+    Approve: (input: approveLayout) => approve(input, s),
+    GetAllowance: (input: getAllowanceLayout) => getAllowance(input, s),
+    GetBalance: (input: address) => getBalance(input, s),
+    GetTotalSupply: (s:storage) => getTotalSupply(s),
+    Mint: (input: mintLayout) => mint(input, s)
+  })
+  return ans;
+}
+     
