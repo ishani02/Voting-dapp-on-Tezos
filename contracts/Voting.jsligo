@@ -1,6 +1,7 @@
 // #include "Ticket.jsligo"
 
 type ans = map<int,string>;
+
 type proposalLayout = {
     idx: nat, // index of each question
     creator: address, // creator of the question
@@ -26,12 +27,12 @@ type storage = {
     quesIdx: nat // global counter to maintain index of all questions created
 };
 
-
 type return_ = [list<operation>, storage];
 
 type action = 
 | ["Proposal", proposalLayout]
-| ["Vote", votingLayout];
+| ["Vote", votingLayout]
+| ["BuyTickets",buyTicketsLayout];
 
 
 const createProposal = (p : proposalLayout, s: storage): return_ => {
@@ -88,6 +89,7 @@ const main = (a: action, s: storage): return_ => {
   let ans = match(a, {
    Proposal: (p: proposalLayout) => createProposal(p, s),
    Vote: (p: votingLayout) => voteProposal(p, s),
+   BuyTickets: (p: buyTicketsLayout) => buyTickets(p,s)
   })
   return ans;
 }

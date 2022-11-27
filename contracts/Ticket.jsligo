@@ -1,4 +1,3 @@
-
 type account = {
   balance: nat, // balance will be a natural number to avoid negative values
   allowances: map<address, nat> // address of actual owner of tokens => amount of tokens allowed
@@ -40,7 +39,6 @@ type action =
 | ["GetBalance", address]
 | ["GetTotalSupply", storage] 
 | ["Mint", mintLayout];
-// | ["Burn", [address, nat]];
 
 const isAllowed = (accountFrom: address, value: nat, s: storage) : bool => { // to check if allowance is enough
     if(Tezos.get_sender() != accountFrom) {
@@ -186,4 +184,3 @@ const main = (a: action, s: storage): return_ => {
   })
   return ans;
 }
-     
