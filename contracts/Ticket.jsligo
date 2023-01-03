@@ -6,8 +6,7 @@ type account = {
 type storage = {
   owner: address, // owner of contract
   totalSupply: nat, // total supply of tokens
-  ledger: big_map<address, account> ,// details of each account
-  callbackContract: contract<nat>
+  ledger: big_map<address, account> // details of each account
 };
 
 type transferLayout = {
@@ -26,6 +25,11 @@ type getAllowanceLayout = {
   spender: address
 };
 
+type getTotalSupplyLayout = {
+  account: address,
+  // contr: contract<nat>
+}
+
 type mintLayout = {
   amount: nat
 };
@@ -37,7 +41,7 @@ type action =
 | ["Approve", approveLayout]
 | ["GetAllowance", getAllowanceLayout]
 | ["GetBalance", address]
-| ["GetTotalSupply", storage] 
+| ["GetTotalSupply"] 
 | ["Mint", mintLayout];
 
 const isAllowed = (accountFrom: address, value: nat, s: storage) : bool => { // to check if allowance is enough
@@ -57,7 +61,7 @@ const isAllowed = (accountFrom: address, value: nat, s: storage) : bool => { // 
     }
 };
 
-const transfer = (p: transferLayout, s: storage) : return_ => {
+export const transfer = (p: transferLayout, s: storage) : return_ => {
   if(p.accountFrom == p.accountTo) {
     return failwith("Sender and receiver address cannot be same");
   } else {
@@ -88,7 +92,7 @@ const transfer = (p: transferLayout, s: storage) : return_ => {
             Map.update(Tezos.get_sender(), Some(abs(new_allowance - p.amount)), actualSender_.allowances)
        })
 
-       let new_storage: storage = {...s, ledger: Big_map.update(p.accountFrom, Some({...actualSender, allowances: actualSender_.allowances}), s.ledger)};
+       let new_storage: storage = {...s, ledger: Big_map.update(p.accountFrom, Some({...actualSender,balance: abs(actualSender.balance - p.amount), allowances: actualSender_.allowances}), s.ledger)};
        let final_storage = {...new_storage, ledger: Big_map.update(p.accountTo, Some(destination_), new_storage.ledger)}
        return [list([]) as list<operation>, final_storage];
       }
@@ -97,7 +101,7 @@ const transfer = (p: transferLayout, s: storage) : return_ => {
 };
 
 
-const approve = (p: approveLayout, s: storage) : return_ => {
+export const approve = (p: approveLayout, s: storage) : return_ => {
  if(Tezos.get_sender() == p.spender) {
   return failwith("You cannot approve yourself");
  } else {
@@ -121,7 +125,7 @@ const approve = (p: approveLayout, s: storage) : return_ => {
      }
     });
    }
-   let new_storage:storage = {...s, ledger: Big_map.update(Tezos.get_sender(), Some({...src, allowances: newAllowance}), s.ledger)};
+   let new_storage: storage = {...s, ledger: Big_map.update(Tezos.get_sender(), Some({...src, allowances: newAllowance}), s.ledger)};
    return [list([]) as list<operation>, new_storage];  
 };
 
@@ -134,28 +138,47 @@ const getAllowance = (p:getAllowanceLayout, s: storage): return_ => {
     None: () => failwith("No account found"),
     Some: spenderAllowance => spenderAllowance
    });
-  const op = Tezos.transaction(spenderAllowance, 0 as mutez, s.callbackContract);
-  return [list([op]) as list<operation>, s];
+  //   const contract : contract<nat> =
+  //   match (Tezos.get_contract_opt(Tezos.get_sender()) as option<contract<nat>>, {
+  //   Some: (contract: contract<nat>) => contract,
+  //   None: () => (failwith("no contract") as contract<nat>)
+  // })
+  // const op: operation = Tezos.transaction(spenderAllowance, 0 as mutez, contract);
+  return [list([]) as list<operation>, s];
 };
 
 const getBalance = (user: address, s: storage) : return_ => {
   let user_ = match(Big_map.find_opt(user, s.ledger), {
     None: () => failwith("No account found"),
     Some: user_ => user_
-  })
-  const op = Tezos.transaction(user_.balance, 0 as mutez, s.callbackContract);
-  return [list([op]) as list<operation>, s];
+  });
+  //   const contract : contract<nat> =
+  //   match (Tezos.get_contract_opt(Tezos.get_sender()) as option<contract<nat>>, {
+  //   Some: (contract: contract<nat>) => contract,
+  //   None: () => (failwith("no contract") as contract<nat>)
+  // })
+  // let op = Tezos.transaction(user_.balance, 0 as mutez, contract);
+  return [list([]) as list<operation>, s];
 };
 
 const getTotalSupply = (s: storage): return_ => {
-  const op = Tezos.transaction(s.totalSupply, 0 as mutez, s.callbackContract);
-  return [list([op]) as list<operation>, s]; 
+// const val:operation = s.totalSupply;
+// const c_opt : option<contract<nat>> = Tezos.get_entrypoint_opt("%GetTotalSupply", "KT1RkHUXGRB1J95sTAmja4Bfy7dq1oJkTFtL" as address);
+// const receiver : contract<nat> =
+//     match(c_opt, {
+//       Some: c => c,
+//       None: () => failwith ("Contract not found.") as contract<nat>
+//     });
+//   const op = Tezos.transaction(s.totalSupply, 0 as tez, receiver); 
+  
+  // const op: operation = Tezos.transaction(c_opt, 0 as mutez, contract(amt));
+  return [list([]) as list<operation>, s]; 
 }
 
-const mint = (p:mintLayout, s: storage): return_ => {
-   if(Tezos.get_sender()!= s.owner) {
-    return failwith("Only owner can mint tokens");
-   } else {
+export const mint = (p:mintLayout, s: storage): return_ => {
+  //  if(Tezos.get_sender()!= s.owner) {
+  //   return failwith("Only owner can mint tokens");
+  //  } else {
     let ownerAccount = match(Big_map.find_opt(s.owner, s.ledger), {
       Some: ownerAcc => {
         let updatedAccount = {...ownerAcc, balance : ownerAcc.balance + p.amount}
@@ -170,7 +193,7 @@ const mint = (p:mintLayout, s: storage): return_ => {
     let new_storage: storage = {...s, ledger: Big_map.update(s.owner, Some(ownerAccount), s.ledger),
      totalSupply : s.totalSupply + p.amount};
      return [list([]) as list<operation>, new_storage];
-   }
+  //  }
 };
 
 const main = (a: action, s: storage): return_ => {
@@ -179,7 +202,7 @@ const main = (a: action, s: storage): return_ => {
     Approve: (input: approveLayout) => approve(input, s),
     GetAllowance: (input: getAllowanceLayout) => getAllowance(input, s),
     GetBalance: (input: address) => getBalance(input, s),
-    GetTotalSupply: (s:storage) => getTotalSupply(s),
+    GetTotalSupply: () => getTotalSupply(s),
     Mint: (input: mintLayout) => mint(input, s)
   })
   return ans;

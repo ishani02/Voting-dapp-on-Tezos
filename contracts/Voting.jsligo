@@ -1,5 +1,3 @@
-// #include "Ticket.jsligo"
-
 type ans = map<int,string>;
 
 type proposalLayout = {
@@ -11,9 +9,10 @@ type proposalLayout = {
     price: tez
 };
 
-type votingLayout = {
-    selectedAnsIdx: nat, // index of proposal the voter wants to vote 
-};
+
+// type votingLayout = {
+//    selectedAnsIdx: nat, // index of proposal the voter wants to vote 
+// };
 
 type buyTicketsLayout = {
    ticketsRequested: nat,
@@ -31,9 +30,8 @@ type return_ = [list<operation>, storage];
 
 type action = 
 | ["Proposal", proposalLayout]
-| ["Vote", votingLayout]
+| ["Vote", nat]
 | ["BuyTickets",buyTicketsLayout];
-
 
 const createProposal = (p : proposalLayout, s: storage): return_ => {
   let newProposal: proposalLayout = {
@@ -48,47 +46,50 @@ const createProposal = (p : proposalLayout, s: storage): return_ => {
   return [list([]) as list<operation>, new_storage];
 };
 
-const voteProposal = (p: votingLayout, s: storage): return_ => {
-  let ques = Big_map.find_opt(s.quesIdx, s.ledger);
+const voteProposal = (selectedAnsIdx: nat, s: storage): return_ => {
+  let ques = match(Big_map.find_opt(s.owner, s.ledger), {
+      None: () => failwith("No question found"),
+      Some: ques => ques
+  });
 
-    if(Tezos.amount() >= ques.price && (Tezos.get_sender()).balance > Tezos.amount()) {
-      Approve(Tezos.get_self_address(), p.amount);
-      Transfer(Tezos.get_sender(), s.owner, p.amount);
-    } else {
-      return failwith("You are not eligible to vote. Please buy tokens");
-    }
-
-    let count = match(Big_map.find_opt(p.selectedAnsId, s.voteCount), {
-      None: () => 0 as nat,
-      Some: numVotes => numVotes
+    // if(Tezos.amount() >= ques.price && Tezos.get_sender().balance > Tezos.amount()) {
+    //   approve(Tezos.get_self_address(), p.amount);
+    //   transfer(Tezos.get_sender(), s.owner, p.amount);
+    // } 
+    // else {
+    //   return failwith("You are not eligible to vote. Please buy tokens");
+    // }
+    let count:nat = match(Map.find_opt(selectedAnsIdx, s.voteCount), {
+      None: () => failwith("No votes yet"),
+      Some: count => count
     });
 
-    let ans = match(Big_map.find_opt(p.selectedAnsId,s.voteLedger),{
-      None: () => false,
+    let ans: nat = match(Big_map.find_opt(Tezos.get_sender(), s.voterLedger), {
+      None: () => 0 as nat,
       Some: ansPresent => ansPresent
     });
     
-    if(ans != false) {
-    let new_storage: storage = {...s, votesCount: Big_map.update(p.selectedAnsIdx, count + 1, s.votesCount)};
+    if(ans != (0 as nat)) {
+    let new_storage: storage = {...s, voteCount: Map.update(selectedAnsIdx, Some(count), s.voteCount)};
     return [list([]) as list<operation>, new_storage];
     } else {
-    let new_storage: storage = {...s, voteLedger: Big_map.add(Tezos.get_sender(), p.selectedAnsId, s.voteLedger)};
+    let new_storage: storage = {...s, voterLedger: Big_map.add(Tezos.get_sender(), selectedAnsIdx, s.voterLedger)};
     return [list([]) as list<operation>, new_storage];
     }
 };
 
 const buyTickets = (p: buyTicketsLayout, s: storage) => {
-   if((Tezos.get_sender()).balance > ticketsRequested) { // User has sufficient tezos to buy tickets
-   Ticket.mint(ticketsRequested);
-   } else {
+  //  if(Tezos.get_balance() > p.ticketsRequested) { // User has sufficient tezos to buy tickets
+  //  mint(p.ticketsRequested);
+  //  } else {
     return failwith("You don't have sufficient funds");
-   }
-}
+  //  }
+};
 
 const main = (a: action, s: storage): return_ => {
   let ans = match(a, {
    Proposal: (p: proposalLayout) => createProposal(p, s),
-   Vote: (p: votingLayout) => voteProposal(p, s),
+   Vote: (p: nat) => voteProposal(p, s),
    BuyTickets: (p: buyTicketsLayout) => buyTickets(p,s)
   })
   return ans;
